@@ -31,7 +31,7 @@ public class Redirect extends HttpServlet {
         String redirectUri = properties.getRedirectUri();
 
         StringBuilder url = new StringBuilder();
-        url.append("https://accounts.google.com/o/oauth2/v2/auth?");
+        url.append("https://accounts.google.com/o/oauth2/v2/auth?"); // TODO discovery
         url.append("response_type=").append(RESPONSE_TYPE);
         url.append("&scope=").append(SCOPE);
         url.append("&client_id=").append(clientId);
