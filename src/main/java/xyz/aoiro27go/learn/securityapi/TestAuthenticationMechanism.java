@@ -5,6 +5,11 @@
  */
 package xyz.aoiro27go.learn.securityapi;
 
+import xyz.aoiro27go.learn.securityapi.response.OpenIdProviderMetadata;
+import xyz.aoiro27go.learn.securityapi.response.JwksRoot;
+import xyz.aoiro27go.learn.securityapi.response.JwksKeys;
+import xyz.aoiro27go.learn.securityapi.response.IdToken;
+import xyz.aoiro27go.learn.securityapi.response.TokenResponse;
 import java.io.StringReader;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
@@ -60,128 +65,139 @@ public class TestAuthenticationMechanism implements HttpAuthenticationMechanism 
     @Inject
     private IdentityStoreHandler identityStoreHandler;
 
+    @Inject
+    private ClientAuthProperties clientAuthProperties;
+
     @Override
     public AuthenticationStatus validateRequest(HttpServletRequest request, HttpServletResponse response, HttpMessageContext httpMessageContext) throws AuthenticationException {
 
-        // とりあえずコールバックをキャッチ
-        // ここってホスト名は入ってこないの？
-        if (request.getRequestURI().equals("/learn-securityapi/cb")) {
+        // コールバックをキャッチ
+        if (clientAuthProperties.getRedirectUri().equals(request.getRequestURL().toString())) {
 
             Client client = ClientBuilder.newClient();
-
-            // Discovery
-            Discovery  discovery = client.target("https://accounts.google.com/.well-known/openid-configuration").request(MediaType.APPLICATION_JSON_TYPE).get(Discovery.class);
-
-            // アクセストークンをもらいに行きます
-            ClientAuthProperties properties = ClientAuthProperties.getInstace();
-            String clientId = properties.getClientId();
-            String clientSecret = properties.getClientSecret();
-            String redirectUri = properties.getRedirectUri();
-
-            Form form = new Form();
-            form.param("client_id", clientId);
-            form.param("client_secret", clientSecret);
-            form.param("grant_type", "authorization_code");
-            form.param("code", request.getParameter("code")); // 必須項目なのでなかったらふつーにエラー
-            form.param("redirect_uri", redirectUri);
-
-            String tokenEndpoint = discovery.getTokenEndpoint();
-            WebTarget webTarget = client.target(tokenEndpoint);
-
-            TokenResponse tokenResponse = webTarget.request().post(Entity.entity(form, MediaType.APPLICATION_FORM_URLENCODED), TokenResponse.class);
-
-            Logger.getLogger(TestAuthenticationMechanism.class.getName()).info(tokenResponse.getIdToken());
-
-            /*
-              ID Tokenを検証
-             */
-            String[] idTokenValues = tokenResponse.getIdToken().split("\\.");
-
-            // ヘッダーを取得
-            byte[] header = Base64.getUrlDecoder().decode(idTokenValues[0]);
-            JsonReader reader = Json.createReader(new StringReader(new String(header, StandardCharsets.UTF_8)));
-            JsonObject headerJson = reader.readObject();
-
-            // アルゴリズムはRS256以外NG
-            JsonString alg = (JsonString) headerJson.get("alg");
-            if (!"RS256".equals(alg.getString())) {
-                return httpMessageContext.responseUnauthorized();
-            }
-
-            // JWKを特定
-            JsonString kid = (JsonString) headerJson.get("kid");
-
-            // JWK Setから使われたJWKを取得
-            String jwksUri = discovery.getJwksUri();
-            JwksRoot jwksRoot = client.target(jwksUri).request().get(JwksRoot.class);
-            JwksKeys key = jwksRoot.getKeys().stream()
-                    .filter(s -> s.getKid().equals(kid.getString()))
-                    .findFirst()
-                    .get();
-
             try {
-                // 公開鍵を取得
-                byte[] modulusB = Base64.getUrlDecoder().decode(key.getN());
-                byte[] publicExponentB = Base64.getUrlDecoder().decode(key.getE());
+                // Discovery
+                OpenIdProviderMetadata openIdProviderMetadata = client.target("https://accounts.google.com/.well-known/openid-configuration")
+                        .request(MediaType.APPLICATION_JSON_TYPE)
+                        .get(OpenIdProviderMetadata.class);
 
-                BigInteger modulus = new BigInteger(DatatypeConverter.printHexBinary(modulusB), 16);
-                BigInteger pubExponent = new BigInteger(DatatypeConverter.printHexBinary(publicExponentB), 16);
+                // Token EndpointにAuthorization Codeを送信する
+                String clientId = clientAuthProperties.getClientId();
+                String clientSecret = clientAuthProperties.getClientSecret();
+                String redirectUri = clientAuthProperties.getRedirectUri();
 
-                RSAPublicKeySpec publicSpec = new RSAPublicKeySpec(modulus, pubExponent);
-                KeyFactory factory = KeyFactory.getInstance("RSA");
-                PublicKey pub = factory.generatePublic(publicSpec);
+                Form form = new Form();
+                form.param("client_id", clientId);
+                form.param("client_secret", clientSecret);
+                form.param("grant_type", "authorization_code");
+                form.param("code", request.getParameter("code"));
+                form.param("redirect_uri", redirectUri);
 
-                // 正しく署名されていることを確認する
-                String payload = idTokenValues[0] + "." + idTokenValues[1];
-                byte[] signature = Base64.getUrlDecoder().decode(idTokenValues[2]);
+                String tokenEndpoint = openIdProviderMetadata.getTokenEndpoint();
+                WebTarget webTarget = client.target(tokenEndpoint);
 
-                Signature verifier = Signature.getInstance("SHA256withRSA");
-                verifier.initVerify(pub);
-                verifier.update(payload.getBytes(StandardCharsets.UTF_8));
+                // トークンを取得
+                TokenResponse tokenResponse = webTarget.request().post(Entity.entity(form, MediaType.APPLICATION_FORM_URLENCODED), TokenResponse.class);
 
-                boolean result = verifier.verify(signature);
-                Logger.getLogger(TestAuthenticationMechanism.class.getName()).log(Level.INFO, String.valueOf(result));
+                // ID Tokenを抽出
+                String[] idTokenValues = tokenResponse.getIdToken().split("\\.");
+                String payload = new String(Base64.getUrlDecoder().decode(idTokenValues[1]), StandardCharsets.UTF_8);
+                IdToken idToken = JsonbBuilder.create().fromJson(payload, IdToken.class);
 
-                // 検証NG
-                if (!result) {
+                // ID Tokenを検証
+                if (!ValidateSignature(client, idTokenValues, openIdProviderMetadata)
+                        || !IdTokenValidation(openIdProviderMetadata.getIssuer(), clientId, idToken)) {
                     return httpMessageContext.responseUnauthorized();
                 }
 
-            } catch (NoSuchAlgorithmException | InvalidKeySpecException | InvalidKeyException | SignatureException ex) {
-                Logger.getLogger(TestAuthenticationMechanism.class.getName()).log(Level.SEVERE, null, ex);
-            }
+                // このissuerのsubjectがユーザーとして登録されているか確認
+                CredentialValidationResult result = identityStoreHandler.validate(new UsernamePasswordCredential(idToken.getIss(), idToken.getSub()));
+                return httpMessageContext.notifyContainerAboutLogin(result.getCallerPrincipal(), result.getCallerGroups());
 
-            // ペイロードを取得
-            String payload = new String(Base64.getUrlDecoder().decode(idTokenValues[1]), StandardCharsets.UTF_8);
-            IdToken idToken = JsonbBuilder.create().fromJson(payload, IdToken.class);
-
-            Logger.getLogger(TestAuthenticationMechanism.class.getName()).log(Level.INFO, idToken.getIss());
-
-            // iss（issuer = ID Token発行者）とOPのIssuer Identifierと一致する
-            if (!discovery.getIssuer().equals(idToken.getIss())) {
-                return httpMessageContext.responseUnauthorized();
+            } finally {
+                client.close();
             }
-            // aud(audience = クライアント)とclient_idが一致する
-            if (!clientId.equals(idToken.getAud())) {
-                return httpMessageContext.responseUnauthorized();
-            }
-            // 現在時刻が有効期限より後はダメ
-            long createtime = (new Date().getTime()) / 1000;
-            if (createtime > Long.parseLong(idToken.getExp())) {
-                return httpMessageContext.responseUnauthorized();
-            }
-            // nonceをチェック
-            if (idToken.getNonce() != null) {
-                // iatのチェックもここでする
-            }
-
-            client.close(); // TODO finally
-
-            CredentialValidationResult result = identityStoreHandler.validate(new UsernamePasswordCredential("reza", "secret2"));
-            return httpMessageContext.notifyContainerAboutLogin(result.getCallerPrincipal(), result.getCallerGroups());
         }
 
         return httpMessageContext.doNothing();
     }
 
+    private boolean ValidateSignature(Client client, String[] idTokenValues, OpenIdProviderMetadata openIdProviderMetadata) {
+
+        // ヘッダーを取得
+        byte[] header = Base64.getUrlDecoder().decode(idTokenValues[0]);
+        JsonReader reader = Json.createReader(new StringReader(new String(header, StandardCharsets.UTF_8)));
+        JsonObject headerJson = reader.readObject();
+
+        // アルゴリズムはRS256以外NG
+        JsonString alg = (JsonString) headerJson.get("alg");
+        if (!"RS256".equals(alg.getString())) {
+            return false;
+        }
+
+        // JWKを特定
+        JsonString kid = (JsonString) headerJson.get("kid");
+
+        // JWK Setから使われたJWKを取得
+        String jwksUri = openIdProviderMetadata.getJwksUri();
+        JwksRoot jwksRoot = client.target(jwksUri).request().get(JwksRoot.class);
+        JwksKeys key = jwksRoot.getKeys().stream()
+                .filter(s -> s.getKid().equals(kid.getString()))
+                .findFirst()
+                .get();
+
+        try {
+            // 公開鍵を取得
+            byte[] modulusB = Base64.getUrlDecoder().decode(key.getN());
+            byte[] publicExponentB = Base64.getUrlDecoder().decode(key.getE());
+
+            BigInteger modulus = new BigInteger(DatatypeConverter.printHexBinary(modulusB), 16);
+            BigInteger pubExponent = new BigInteger(DatatypeConverter.printHexBinary(publicExponentB), 16);
+
+            RSAPublicKeySpec publicSpec = new RSAPublicKeySpec(modulus, pubExponent);
+            KeyFactory factory = KeyFactory.getInstance("RSA");
+            PublicKey pub = factory.generatePublic(publicSpec);
+
+            // 正しく署名されていることを確認する
+            String payload = idTokenValues[0] + "." + idTokenValues[1];
+            byte[] signature = Base64.getUrlDecoder().decode(idTokenValues[2]);
+
+            Signature verifier = Signature.getInstance("SHA256withRSA");
+            verifier.initVerify(pub);
+            verifier.update(payload.getBytes(StandardCharsets.UTF_8));
+
+            // 検証NG
+            if (!verifier.verify(signature)) {
+                return false;
+            }
+
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException | InvalidKeyException | SignatureException ex) {
+            Logger.getLogger(TestAuthenticationMechanism.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
+        return true;
+    }
+
+    private boolean IdTokenValidation(String issuer, String clientId, IdToken idToken) {
+
+        // iss（issuer = ID Token発行者）とOPのIssuer Identifierが一致する
+        if (!issuer.equals(idToken.getIss())) {
+            return false;
+        }
+        // aud(audience = クライアント)とclient_idが一致する
+        if (!clientId.equals(idToken.getAud())) {
+            return false;
+        }
+        // 現在時刻が有効期限より後はダメ
+        long createtime = (new Date().getTime()) / 1000;
+        if (createtime > Long.parseLong(idToken.getExp())) {
+            return false;
+        }
+        // nonceをチェック
+        if (idToken.getNonce() != null) {
+            // iatのチェックもここでする
+        }
+
+        return true;
+    }
 }

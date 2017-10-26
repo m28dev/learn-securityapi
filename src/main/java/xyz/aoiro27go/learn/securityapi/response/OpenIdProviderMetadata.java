@@ -3,7 +3,7 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package xyz.aoiro27go.learn.securityapi;
+package xyz.aoiro27go.learn.securityapi.response;
 
 import java.util.List;
 import javax.json.bind.annotation.JsonbProperty;
@@ -12,7 +12,7 @@ import javax.json.bind.annotation.JsonbProperty;
  *
  * @author m28dev
  */
-public class Discovery {
+public class OpenIdProviderMetadata {
 
     @JsonbProperty(value = "issuer")
     private String issuer;

@@ -3,7 +3,7 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package xyz.aoiro27go.learn.securityapi;
+package xyz.aoiro27go.learn.securityapi.web;
 
 import java.io.IOException;
 import javax.annotation.security.DeclareRoles;

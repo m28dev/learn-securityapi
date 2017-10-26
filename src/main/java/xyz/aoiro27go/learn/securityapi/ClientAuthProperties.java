@@ -6,25 +6,19 @@
 package xyz.aoiro27go.learn.securityapi;
 
 import java.util.ResourceBundle;
+import javax.enterprise.context.ApplicationScoped;
 
 /**
  *
  * @author m28dev
  */
+@ApplicationScoped
 public class ClientAuthProperties {
 
     private ResourceBundle rb = null;
 
-    private ClientAuthProperties() {
+    public ClientAuthProperties() {
         rb = ResourceBundle.getBundle("clientauth");
-    }
-
-    private static class ClientAuthPropertiesHolder {
-        private static final ClientAuthProperties INSTANCE = new ClientAuthProperties();
-    }
-
-    public static ClientAuthProperties getInstace() {
-        return ClientAuthPropertiesHolder.INSTANCE;
     }
 
     public String getClientId() {
