@@ -32,4 +32,8 @@ public class ClientAuthProperties {
     public String getRedirectUri() {
         return rb.getString("redirect_uri");
     }
+
+    public String getOpenidConfigurationURI() {
+        return rb.getString("openid_configuration_uri");
+    }
 }

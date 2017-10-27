@@ -43,6 +43,7 @@ import javax.security.enterprise.identitystore.CredentialValidationResult;
 import javax.security.enterprise.identitystore.IdentityStoreHandler;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import javax.ws.rs.client.Client;
 import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
@@ -74,10 +75,22 @@ public class TestAuthenticationMechanism implements HttpAuthenticationMechanism 
         // コールバックをキャッチ
         if (clientAuthProperties.getRedirectUri().equals(request.getRequestURL().toString())) {
 
+            // stateを確認
+            String paramState = request.getParameter("state");
+            
+            HttpSession session = request.getSession();
+            String sessionState = (String) session.getAttribute("state_param");
+            
+            session.removeAttribute("state_param");
+            
+            if (!paramState.equals(sessionState)) {
+                return httpMessageContext.responseUnauthorized();
+            }
+
             Client client = ClientBuilder.newClient();
             try {
                 // Discovery
-                OpenIdProviderMetadata openIdProviderMetadata = client.target("https://accounts.google.com/.well-known/openid-configuration")
+                OpenIdProviderMetadata openIdProviderMetadata = client.target(clientAuthProperties.getOpenidConfigurationURI())
                         .request(MediaType.APPLICATION_JSON_TYPE)
                         .get(OpenIdProviderMetadata.class);
 
@@ -173,6 +186,7 @@ public class TestAuthenticationMechanism implements HttpAuthenticationMechanism 
 
         } catch (NoSuchAlgorithmException | InvalidKeySpecException | InvalidKeyException | SignatureException ex) {
             Logger.getLogger(TestAuthenticationMechanism.class.getName()).log(Level.SEVERE, null, ex);
+            return false;
         }
 
         return true;
@@ -192,10 +206,6 @@ public class TestAuthenticationMechanism implements HttpAuthenticationMechanism 
         long createtime = (new Date().getTime()) / 1000;
         if (createtime > Long.parseLong(idToken.getExp())) {
             return false;
-        }
-        // nonceをチェック
-        if (idToken.getNonce() != null) {
-            // iatのチェックもここでする
         }
 
         return true;

@@ -21,7 +21,9 @@ import javax.servlet.http.HttpServletResponse;
  */
 @WebServlet("/servlet")
 @DeclareRoles({"foo", "bar", "kaz"})
-@ServletSecurity(@HttpConstraint(rolesAllowed = "foo"))
+@ServletSecurity(
+        @HttpConstraint(rolesAllowed = "foo")
+)
 public class Servlet extends HttpServlet {
 
     private static final long serialVersionUID = 1L;
@@ -29,18 +31,24 @@ public class Servlet extends HttpServlet {
     @Override
     public void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
 
-        response.getWriter().write("This is a servlet \n");
+        response.setContentType("text/html; charset=utf-8");
+        response.getWriter().write("<!DOCTYPE html>");
+        response.getWriter().write("<title>learn security api</title>");
 
         String webName = null;
         if (request.getUserPrincipal() != null) {
             webName = request.getUserPrincipal().getName();
         }
 
-        response.getWriter().write("web username: " + webName + "\n");
+        response.getWriter().write("<p>");
+        response.getWriter().write("web username: " + webName);
+        response.getWriter().write("</p>");
 
-        response.getWriter().write("web user has role \"foo\": " + request.isUserInRole("foo") + "\n");
-        response.getWriter().write("web user has role \"bar\": " + request.isUserInRole("bar") + "\n");
-        response.getWriter().write("web user has role \"kaz\": " + request.isUserInRole("kaz") + "\n");
+        response.getWriter().write("<ul>");
+        response.getWriter().write("<li>" + "web user has role \"foo\": " + request.isUserInRole("foo") + "</li>");
+        response.getWriter().write("<li>" + "web user has role \"bar\": " + request.isUserInRole("bar") + "</li>");
+        response.getWriter().write("<li>" + "web user has role \"kaz\": " + request.isUserInRole("kaz") + "</li>");
+        response.getWriter().write("</ul>");
 
     }
 

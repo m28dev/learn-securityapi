@@ -22,8 +22,9 @@ public class TestIdentityStore implements IdentityStore {
 
     public CredentialValidationResult validate(UsernamePasswordCredential usernamePasswordCredential) {
 
-        if (usernamePasswordCredential.compareTo("reza", "secret2")) {
-            return new CredentialValidationResult("reza", new HashSet<>(asList("foo", "bar")));
+        //if (usernamePasswordCredential.compareTo("https://accounts.google.com", "<INPUT_YOUR_SUBJECT>")) {
+        if (true) {
+            return new CredentialValidationResult("YOU", new HashSet<>(asList("foo", "bar")));
         }
 
         return INVALID_RESULT;
