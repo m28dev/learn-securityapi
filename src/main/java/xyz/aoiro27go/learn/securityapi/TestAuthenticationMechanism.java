@@ -68,7 +68,6 @@ import javax.ws.rs.client.Entity;
 import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.Form;
 import javax.ws.rs.core.MediaType;
-import javax.xml.bind.DatatypeConverter;
 
 /**
  *
@@ -95,12 +94,12 @@ public class TestAuthenticationMechanism implements HttpAuthenticationMechanism 
 
             // stateを確認
             String paramState = request.getParameter("state");
-            
+
             HttpSession session = request.getSession();
             String sessionState = (String) session.getAttribute("state_param");
-            
+
             session.removeAttribute("state_param");
-            
+
             if (!paramState.equals(sessionState)) {
                 return httpMessageContext.responseUnauthorized();
             }
@@ -182,8 +181,8 @@ public class TestAuthenticationMechanism implements HttpAuthenticationMechanism 
             byte[] modulusB = Base64.getUrlDecoder().decode(key.getN());
             byte[] publicExponentB = Base64.getUrlDecoder().decode(key.getE());
 
-            BigInteger modulus = new BigInteger(DatatypeConverter.printHexBinary(modulusB), 16);
-            BigInteger pubExponent = new BigInteger(DatatypeConverter.printHexBinary(publicExponentB), 16);
+            BigInteger modulus = new BigInteger(this.printHexBinary(modulusB), 16);
+            BigInteger pubExponent = new BigInteger(this.printHexBinary(publicExponentB), 16);
 
             RSAPublicKeySpec publicSpec = new RSAPublicKeySpec(modulus, pubExponent);
             KeyFactory factory = KeyFactory.getInstance("RSA");
@@ -227,5 +226,13 @@ public class TestAuthenticationMechanism implements HttpAuthenticationMechanism 
         }
 
         return true;
+    }
+
+    private String printHexBinary(byte[] barr) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : barr) {
+            sb.append(String.format("%02x", (Byte.toUnsignedInt(b))));
+        }
+        return sb.toString();
     }
 }
